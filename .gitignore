@@ -20,3 +20,5 @@ next-env.d.ts
 mobile-*.png
 .DS_Store
 Thumbs.db
+
+.vercel
