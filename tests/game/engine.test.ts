@@ -17,6 +17,12 @@ test("baralho tem 160 cartas válidas e a distribuição exigida", () => {
   assert.equal(CARDS.filter((card) => card.difficulty === "medium").length, 72);
   assert.equal(CARDS.filter((card) => card.difficulty === "hard").length, 40);
   assert.deepEqual(new Set(CARDS.map((card) => card.category)), new Set(CATEGORIES));
+  for (const category of CATEGORIES) {
+    assert.deepEqual(
+      new Set(CARDS.filter((card) => card.category === category).map((card) => card.difficulty)),
+      new Set(["easy", "medium", "hard"]),
+    );
+  }
 });
 
 test("filtros de categoria e dificuldade respeitam cartas usadas", () => {
@@ -30,9 +36,11 @@ test("filtros de categoria e dificuldade respeitam cartas usadas", () => {
 test("pontuação, penalidade e desfazer restauram a carta", () => {
   let game = startTurn(createGame("classic", teams, DEFAULT_SETTINGS), 1_000);
   const first = game.currentCardId;
+  assert.equal(game.roundStats.cards, 1);
   game = applyAction(game, "correct", 1_100);
   assert.equal(game.roundStats.points, 1);
   assert.equal(game.roundStats.correct, 1);
+  assert.equal(game.roundStats.cards, 2);
   assert.notEqual(game.currentCardId, first);
   game = applyAction(game, "forbidden", 1_200);
   assert.equal(game.roundStats.points, 0);
@@ -40,7 +48,19 @@ test("pontuação, penalidade e desfazer restauram a carta", () => {
   game = undoAction(game);
   assert.equal(game.roundStats.points, 1);
   assert.equal(game.roundStats.forbidden, 0);
+  assert.equal(game.roundStats.cards, 2);
   assert.equal(game.currentCardId, penalized);
+});
+
+test("desfazer recalcula a melhor sequencia da rodada", () => {
+  let game = startTurn(createGame("classic", teams, DEFAULT_SETTINGS), 1_000);
+  game = applyAction(game, "correct", 1_100);
+  game = applyAction(game, "correct", 1_200);
+  assert.equal(game.roundStats.bestStreak, 2);
+  game = undoAction(game);
+  assert.equal(game.roundStats.bestStreak, 1);
+  game = undoAction(game);
+  assert.equal(game.roundStats.bestStreak, 0);
 });
 
 test("Relâmpago bloqueia o terceiro pulo", () => {

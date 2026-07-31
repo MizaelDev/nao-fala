@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
-    "test": "tsx --test tests/game/engine.test.ts",
+    "test": "tsx --test tests/game/*.test.ts",
     "test:mobile": "tsx tests/game/mobile-qa.ts"
   },
   "dependencies": {

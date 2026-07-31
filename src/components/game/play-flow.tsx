@@ -13,6 +13,8 @@ export function PlayFlow({ game, onChange, onHome, onNewGame }: { game: SavedGam
   const [now, setNow] = useState(Date.now());
   const [count, setCount] = useState(3);
   const endedRef = useRef(false);
+  const lastAlertSecondRef = useRef<number | null>(null);
+  const actionLockedUntilRef = useRef(0);
   const team = currentTeam(game);
   const round = currentRound(game);
   const player = team.players[game.playerIndexes[team.id] ?? 0];
@@ -29,17 +31,23 @@ export function PlayFlow({ game, onChange, onHome, onNewGame }: { game: SavedGam
   }, [game.screen]);
 
   useEffect(() => {
-    if (game.screen !== "playing") { endedRef.current = false; return; }
-    if (seconds === 10) vibrate(80, game.settings.vibration);
-    if (seconds <= 5 && seconds > 0) playCue("tick", game.settings.sound);
+    if (game.screen !== "playing") { endedRef.current = false; lastAlertSecondRef.current = null; return; }
+    if (seconds !== lastAlertSecondRef.current) {
+      lastAlertSecondRef.current = seconds;
+      if (seconds === 10) vibrate(80, game.settings.vibration);
+      if (seconds <= 5 && seconds > 0) playCue("tick", game.settings.sound);
+    }
     if (remaining <= 0 && !endedRef.current) {
       endedRef.current = true; playCue("finish", game.settings.sound); vibrate([180, 80, 260], game.settings.vibration); onChange(finishTurn(game));
     }
   }, [seconds, remaining, game, onChange]);
 
   const action = useCallback((kind: ActionKind) => {
+    if (!game.currentCardId || Date.now() < actionLockedUntilRef.current) return;
     const next = applyAction(game, kind);
-    if (next === game) return;
+    const actionRecorded = next.actionHistory.length > game.actionHistory.length;
+    if (!actionRecorded) { if (next !== game) onChange(next); return; }
+    actionLockedUntilRef.current = Date.now() + 350;
     playCue(kind, game.settings.sound); vibrate(kind === "forbidden" ? [70, 40, 70] : 35, game.settings.vibration); onChange(next);
   }, [game, onChange]);
 
@@ -57,18 +65,22 @@ export function PlayFlow({ game, onChange, onHome, onNewGame }: { game: SavedGam
   const beginCountdown = () => { setCount(3); onChange({ ...game, screen: "countdown" }); };
   useEffect(() => {
     if (game.screen !== "countdown") return;
-    if (count <= 0) { playCue("start", game.settings.sound); onChange(startTurn(game)); return; }
+    if (count <= 0) {
+      const timeout = window.setTimeout(() => { playCue("start", game.settings.sound); onChange(startTurn(game)); }, 500);
+      return () => window.clearTimeout(timeout);
+    }
     playCue("tick", game.settings.sound);
-    const timeout = window.setTimeout(() => setCount((value) => value - 1), 700); return () => window.clearTimeout(timeout);
+    const timeout = window.setTimeout(() => setCount((value) => value - 1), 700);
+    return () => window.clearTimeout(timeout);
   }, [count, game, onChange]);
 
   if (game.screen === "countdown") return <FullCenter><motion.div key={count} initial={{ scale: .4, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="countdown-number">{count || "VALENDO!"}</motion.div></FullCenter>;
   if (game.screen === "ready" || game.screen === "tieBreaker") return <Ready game={game} teamName={team.name} player={player} round={round} onReady={beginCountdown} onHome={onHome} />;
   if (game.screen === "playing") return <Playing game={game} card={card} teamName={team.name} player={player} round={round} seconds={seconds} progress={progress} onAction={action} onPause={() => onChange(pauseTurn(game))} onSound={() => onChange({ ...game, settings: { ...game.settings, sound: !game.settings.sound } })} onUndo={() => onChange(undoAction(game))} />;
-  if (game.screen === "paused") return <PauseScreen game={game} onResume={() => onChange(resumeTurn(game))} onRestart={() => { if (!game.settings.confirmAbandon || confirm("Reiniciar esta rodada? Os pontos da vez serão apagados.")) onChange(prepareTurn(game)); }} onHome={() => { if (!game.settings.confirmAbandon || confirm("Abandonar a partida e voltar ao início?")) onHome(); }} />;
+  if (game.screen === "paused") return <PauseScreen game={game} onResume={() => onChange(resumeTurn(game))} onRestart={() => { if (!game.settings.confirmAbandon || confirm("Reiniciar esta rodada? Os pontos da vez serão apagados.")) onChange(prepareTurn(game)); }} onHome={() => { if (!game.settings.confirmAbandon || confirm("Abandonar a partida e voltar ao início?")) onNewGame(); }} />;
   if (game.screen === "roundSummary") return <RoundSummary game={game} onUndo={() => onChange(undoAction(game))} onConfirm={() => onChange(commitTurn(game))} />;
   if (game.screen === "scoreboard") return <Scoreboard game={game} onNext={() => onChange(nextFromScoreboard(game))} />;
-  return <Finished game={game} onReplay={() => onChange(replay(game))} onNewGame={onNewGame} onHome={onHome} />;
+  return <Finished game={game} onReplay={() => onChange(replay(game))} onNewGame={onNewGame} onHome={onNewGame} />;
 }
 
 function Ready({ game, teamName, player, round, onReady, onHome }: { game: SavedGame; teamName: string; player?: string; round: number; onReady: () => void; onHome: () => void }) {

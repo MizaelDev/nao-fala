@@ -13,7 +13,7 @@ export const TEAM_COLORS = ["#ef5b35", "#17a398", "#ffca3a", "#6c63ff", "#e8488a
 export const TEAM_AVATARS = ["zap", "flame", "star", "ghost", "crown", "rocket"];
 
 export const makeTeam = (index: number): Team => ({
-  id: crypto.randomUUID?.() ?? `team-${Date.now()}-${index}`,
+  id: globalThis.crypto?.randomUUID?.() ?? `team-${Date.now()}-${index}`,
   name: TEAM_NAMES[index] ?? `Equipe ${index + 1}`,
   color: TEAM_COLORS[index % TEAM_COLORS.length],
   avatar: TEAM_AVATARS[index % TEAM_AVATARS.length],
@@ -73,14 +73,19 @@ export function applyAction(game: SavedGame, kind: ActionKind, now = Date.now())
     correct: game.roundStats.correct + (kind === "correct" ? 1 : 0),
     skipped: game.roundStats.skipped + (kind === "skip" ? 1 : 0),
     forbidden: game.roundStats.forbidden + (kind === "forbidden" ? 1 : 0),
-    cards: game.roundStats.cards + 1,
+    cards: game.roundStats.cards,
     points: game.roundStats.points + delta,
     bestStreak: Math.max(game.roundStats.bestStreak, streak),
   };
   const usedCardIds = [...game.usedCardIds, game.currentCardId];
   const nextBase = { ...game, usedCardIds, actionHistory: [...game.actionHistory, action], roundStats: stats, seed: game.seed + 1, notice: undefined };
   const next = drawCard(nextBase);
-  return { ...nextBase, currentCardId: next?.id ?? null, notice: next ? undefined : "O baralho filtrado acabou. Adicione mais categorias na próxima partida." };
+  return {
+    ...nextBase,
+    currentCardId: next?.id ?? null,
+    roundStats: { ...stats, cards: stats.cards + (next ? 1 : 0) },
+    notice: next ? undefined : "O baralho filtrado acabou. Adicione mais categorias na próxima partida.",
+  };
 }
 
 function trailingCorrect(actions: SavedGame["actionHistory"]): number {
@@ -89,14 +94,25 @@ function trailingCorrect(actions: SavedGame["actionHistory"]): number {
   return total;
 }
 
+function calculateBestStreak(actions: SavedGame["actionHistory"]): number {
+  let current = 0;
+  let best = 0;
+  for (const action of actions) {
+    current = action.kind === "correct" ? current + 1 : 0;
+    best = Math.max(best, current);
+  }
+  return best;
+}
+
 export function undoAction(game: SavedGame): SavedGame {
   const action = game.actionHistory.at(-1);
   if (!action) return game;
-  const stats = { ...game.roundStats, cards: Math.max(0, game.roundStats.cards - 1), points: game.roundStats.points - action.delta };
+  const actionHistory = game.actionHistory.slice(0, -1);
+  const stats = { ...game.roundStats, cards: Math.max(0, game.roundStats.cards - (game.currentCardId ? 1 : 0)), points: game.roundStats.points - action.delta, bestStreak: calculateBestStreak(actionHistory) };
   if (action.kind === "correct") stats.correct--;
   if (action.kind === "skip") stats.skipped--;
   if (action.kind === "forbidden") stats.forbidden--;
-  return { ...game, currentCardId: action.cardId, usedCardIds: game.usedCardIds.filter((id) => id !== action.cardId), actionHistory: game.actionHistory.slice(0, -1), roundStats: stats, notice: "Última ação desfeita." };
+  return { ...game, currentCardId: action.cardId, usedCardIds: game.usedCardIds.filter((id) => id !== action.cardId), actionHistory, roundStats: stats, notice: "Última ação desfeita." };
 }
 
 export function createGame(mode: GameMode, teams: Team[], incoming: GameSettings): SavedGame {
@@ -113,10 +129,10 @@ export function prepareTurn(game: SavedGame): SavedGame {
   if (chaosRule === "Dez segundos a mais.") seconds += 10;
   const reset = { ...game, screen: game.tieTeamIds.length ? "tieBreaker" as const : "ready" as const, currentCardId: null, actionHistory: [], roundStats: { ...EMPTY_STATS }, endAt: null, remainingMs: seconds * 1000, countdown: 3, chaosRule, notice: undefined };
   const card = drawCard(reset);
-  return { ...reset, currentCardId: card?.id ?? null };
+  return { ...reset, currentCardId: card?.id ?? null, roundStats: { ...reset.roundStats, cards: card ? 1 : 0 }, notice: card ? undefined : "Nenhuma carta disponível com os filtros atuais." };
 }
 
-export function startTurn(game: SavedGame, now = Date.now()): SavedGame { return { ...game, screen: "playing", endAt: now + game.remainingMs }; }
+export function startTurn(game: SavedGame, now = Date.now()): SavedGame { return game.currentCardId ? { ...game, screen: "playing", endAt: now + game.remainingMs } : { ...game, notice: "Não é possível iniciar sem uma carta disponível." }; }
 export function pauseTurn(game: SavedGame, now = Date.now()): SavedGame { return game.screen === "playing" ? { ...game, screen: "paused", remainingMs: Math.max(0, (game.endAt ?? now) - now), endAt: null } : game; }
 export function resumeTurn(game: SavedGame, now = Date.now()): SavedGame { return game.screen === "paused" ? { ...game, screen: "playing", endAt: now + game.remainingMs } : game; }
 export function finishTurn(game: SavedGame): SavedGame { return game.screen === "playing" ? { ...game, screen: "roundSummary", remainingMs: 0, endAt: null } : game; }

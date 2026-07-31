@@ -57,8 +57,13 @@ const slug = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/
 
 export const CARDS: GameCard[] = Object.entries(RAW).flatMap(([category, rows]) =>
   rows.map((row, localIndex) => {
-    const index = Object.keys(RAW).indexOf(category) * 10 + localIndex;
-    const difficulty = index < 48 ? "easy" : index < 120 ? "medium" : "hard";
+    const categoryIndex = Object.keys(RAW).indexOf(category);
+    const mediumLimit = categoryIndex < 8 ? 7 : 8;
+    const difficulty = localIndex < 3
+      ? "easy"
+      : localIndex < mediumLimit
+        ? "medium"
+        : "hard";
     return { id: `${slug(category)}-${String(localIndex + 1).padStart(3, "0")}`, word: row[0], forbidden: row.slice(1) as GameCard["forbidden"], category: category as Category, difficulty };
   }),
 );
